@@ -23,8 +23,5 @@ export class User {
   @UpdateDateColumn()
   lastUpdatedDate: Date;
 
-  @Column({type: 'simple-array', nullable: true})
-  todos: string[]
-
 }
 

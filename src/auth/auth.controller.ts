@@ -1,90 +1,98 @@
-import { Controller, Post, Body, UnauthorizedException, Put, UseGuards, Request } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Put,
+  InternalServerErrorException,
+  Post,
+  Request,
+  UnauthorizedException,
+  UseGuards,
+} from '@nestjs/common';
+import { AuthGuard } from './auth.guard';
 import { AuthService } from './auth.service';
-import { LoginUserDto } from './login-user.dto';
-import { CreateUserDto } from './create-user.dto';
-import { UsersService } from '../user/users.service' // Make sure to import UsersService
-import * as bcrypt from 'bcrypt';
-import { JwtService } from '@nestjs/jwt'; // Import JwtService
-import { JwtAuthGuard } from '../jwt-auth.guard' // Import your JwtAuthGuard
+import { UsersService } from 'src/user/users.service';
+import { JwtService } from '@nestjs/jwt';
+import { LoginUserDto } from 'src/user/dto/login-user.dto';
+import { CreateUserDto } from 'src/user/dto/create-user.dto';
+import * as bcrypt from 'bcryptjs';
+import { JwtAuthGuard } from 'src/jwt-auth.guard';
 
 @Controller('auth')
 export class AuthController {
   constructor(
     private authService: AuthService,
-    private usersService: UsersService, // Add UsersService to the constructor
-    private jwtService: JwtService, // Inject JwtService
+    private userService: UsersService,
+    private jwtService: JwtService
   ) {}
 
   @Post('login')
   async login(@Body() loginUserDto: LoginUserDto) {
-    console.log('INSIDE Authcontroller LOGIN');
-    const user = await this.authService.validateUser(loginUserDto.username, loginUserDto.password);
+    console.log('INSIDE Authcontroller LOGIN:',loginUserDto.username, loginUserDto.password)
+    const user = await this.authService.validateUser(loginUserDto.username, loginUserDto.password)
 
     if (user) {
-      console.log('User validated:', user);
+      console.log('User Validated: ', user)
+      // Generate JWT Token 
+      const payload = { username: user.username, sub: user.id }
+      const token = this.authService.generateJwtToken(payload)
 
-      // Generate JWT token
-      //const payload = { username: user.username, sub: user.id };
-      //const token = this.jwtService.sign(payload);
-
-      return user;
-      /* Return both userId and token
-      return {
-        userId: user.userId,
-        token: token,
-      };
-      */
+      return { user, token }
     } else {
-      console.log('Invalid credentials');
-      throw new UnauthorizedException('Invalid credentials');
+      console.log('Invalid Credentials')
+      throw new UnauthorizedException('Invalid Credentials')
     }
   }
 
   @Post('register')
   async register(@Body() createUserDto: CreateUserDto) {
-    console.log('INSIDE Authcontroller Register');
+    console.log('Inside AuthController Register', createUserDto.email, createUserDto.password, createUserDto.username, createUserDto.phone)
+    
+    try {
+      console.log('email:', createUserDto.email)
+      if (!createUserDto.password) {
+        throw new BadRequestException('Password Is Required!')
+      }
+      //Create hashed password
+      const hashedPassword = await bcrypt.hash(createUserDto.password, 10)
+      //create and save new user
+      const newUser = await this.userService.createUser({
+        ...createUserDto,
+        password: hashedPassword
+      })
 
-    // Hash the password
-    const hashedPassword = await bcrypt.hash(createUserDto.password, 10);
-
-    // Create and save the new user
-    const newUser = await this.usersService.createUser({
-      ...createUserDto,
-      password: hashedPassword,
-    });
-
-    if (newUser) {
-      console.log('New user registered:', newUser.username);
-      // You might want to return some user info or a success message
-      return 'User successfully registered';
-    } else {
-      // Handle registration failure
-      console.log('Registration failed');
-      return 'Registration failed';
+      if (newUser) {
+        console.log('New User Registered: ', newUser.username)
+        return 'User Successfully Registered'
+      } else {
+        console.log('Registration failed')
+        return 'Registration failed'
+      }
+    } catch (error) {
+      console.log('Error Registering User: ', error)
+      throw new InternalServerErrorException('Failed to register user');
     }
   }
 
-  //@UseGuards(JwtAuthGuard)
+
+  @UseGuards(JwtAuthGuard)
   @Put('update-profile')
   async updateProfile(@Request() req: any, @Body() updatedUserData: any) {
-
     try {
-      // Check if a new password is provided
       if (updatedUserData.password) {
         // Hash the new password before updating
-        updatedUserData.password = await bcrypt.hash(updatedUserData.password, 10);
+        updatedUserData.password = await bcrypt.hash(updatedUserData.password, 10)
       }
-      console.log('Controller updatedUserData:', {updatedUserData});
-
-      const result = await this.usersService.updateUserData(updatedUserData.userId, updatedUserData);
-      return { success: true, result };
+      console.log('Controller updatedUserData:', { updatedUserData })
+      const result = await this.userService.updateUserData(updatedUserData.userId, updatedUserData);
+      if (result) {
+        return { success: true, result };
+      } else {
+        throw new BadRequestException('Failed to update profile');
+      }
     } catch (error) {
-      return { success: false, error: 'Error updating profile' };
+      throw new InternalServerErrorException('Error updating profile');
     }
   }
 
-  @Post('test')
-  async test() {
-    console.log('INSIDE Authcontroller test')
-  }
 }
